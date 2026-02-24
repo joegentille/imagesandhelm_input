@@ -115,7 +115,7 @@ jobs:
             $SOURCE_IMAGE = $img.source_image
             $REPOSITORY_NAME = $img.repository_name
             $TAG = $img.tag
-            $TARGET_IMAGE = "${{ env.REGISTRY }}/${{ github.repository_owner }}/${REPOSITORY_NAME}"
+            $TARGET_IMAGE = "${{ env.REGISTRY }}/${{ github.repository_owner }}/$REPOSITORY_NAME"
             
             Write-Output ""
             Write-Output "════════════════════════════════════════"
@@ -140,37 +140,40 @@ jobs:
             
             # Tag images
             Write-Output "Tagging image..."
-            $tagResult = docker tag "$SOURCE_IMAGE" "${TARGET_IMAGE}:${TAG}" 2>&1
+            $tagResult = docker tag "$SOURCE_IMAGE" "$TARGET_IMAGE:$TAG" 2>&1
             if ($LASTEXITCODE -ne 0) {
-              "FAILED to tag: $SOURCE_IMAGE → ${TARGET_IMAGE}:${TAG}" | Tee-Object -FilePath $ERROR_LOG -Append | Write-Output
+              "FAILED to tag: $SOURCE_IMAGE → $TARGET_IMAGE:$TAG" | Tee-Object -FilePath $ERROR_LOG -Append | Write-Output
               docker rmi "$SOURCE_IMAGE" 2>$null
               continue
             }
             
             # Push images
             Write-Output "Pushing to GHCR..."
-            $pushResult = docker push "${TARGET_IMAGE}:${TAG}" 2>&1
+            $pushResult = docker push "$TARGET_IMAGE:$TAG" 2>&1
+
             if ($LASTEXITCODE -ne 0) {
-              "FAILED to push: ${TARGET_IMAGE}:${TAG}" | Tee-Object -FilePath $ERROR_LOG -Append | Write-Output
-              docker rmi "$SOURCE_IMAGE" "${TARGET_IMAGE}:${TAG}" "${TARGET_IMAGE}:latest" 2>$null
+              "FAILED to push: $TARGET_IMAGE:$TAG" | Tee-Object -FilePath $ERROR_LOG -Append | Write-Output
+              docker rmi "$SOURCE_IMAGE" "$TARGET_IMAGE:$TAG" 2>$null
               continue
             }
             
             # Cleanup
             Write-Output "Cleaning up..."
-            docker rmi "$SOURCE_IMAGE" "${TARGET_IMAGE}:${TAG}" "${TARGET_IMAGE}:latest" 2>$null
+            docker rmi "$SOURCE_IMAGE" "$TARGET_IMAGE:$TAG" 2>$null
             
-            Write-Output "Done: $SOURCE_IMAGE → ${TARGET_IMAGE}:${TAG}"
-            "$SOURCE_IMAGE|${TARGET_IMAGE}:${TAG}" | Out-File -FilePath $SUCCESS_LOG -Encoding utf8 -Append
+            Write-Output "Done: $SOURCE_IMAGE → $TARGET_IMAGE:$TAG"
+            "$SOURCE_IMAGE|$TARGET_IMAGE:$TAG" | Out-File -FilePath $SUCCESS_LOG -Encoding utf8 -Append
           }
           
           # Save reports for summary
           Copy-Item $TRIVY_REPORT /tmp/trivy-summary.txt -Force
+
           if (Test-Path $SUCCESS_LOG) {
             if ((Get-Item $SUCCESS_LOG).Length -gt 0) {
               Copy-Item $SUCCESS_LOG /tmp/success-summary.txt -Force
             }
           }
+            
           if (Test-Path $ERROR_LOG) {
             if ((Get-Item $ERROR_LOG).Length -gt 0) {
               Copy-Item $ERROR_LOG /tmp/error-summary.txt -Force
@@ -214,10 +217,10 @@ jobs:
             }
             
             if ($SUCCESS_COUNT -gt 0) {
-              Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "# Linux Images Processed Successfully"
+              Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "# Images Processed Successfully"
             }
             else {
-              Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "# Linux Images Processing Failed"
+              Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "# Images Processing Failed"
             }
             
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
