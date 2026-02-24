@@ -140,29 +140,45 @@ jobs:
             
             # Tag images
             Write-Output "Tagging image..."
-            $tagResult = docker tag "$SOURCE_IMAGE" "$TARGET_IMAGE:$TAG" 2>&1
+            $taggedImage = "$($TARGET_IMAGE):$($TAG)"
+            $tagResult = docker tag "$SOURCE_IMAGE" "$taggedImage" 2>&1
             if ($LASTEXITCODE -ne 0) {
-              "FAILED to tag: $SOURCE_IMAGE → $TARGET_IMAGE:$TAG" | Tee-Object -FilePath $ERROR_LOG -Append | Write-Output
+              "FAILED to tag: $SOURCE_IMAGE → $taggedImage" | Tee-Object -FilePath $ERROR_LOG -Append | Write-Output
               docker rmi "$SOURCE_IMAGE" 2>$null
+              continue
+            }
+            
+            $taggedLatest = "$($TARGET_IMAGE):latest"
+            $tagLatestResult = docker tag "$SOURCE_IMAGE" "$taggedLatest" 2>&1
+            if ($LASTEXITCODE -ne 0) {
+              "FAILED to tag latest: $SOURCE_IMAGE → $taggedLatest" | Tee-Object -FilePath $ERROR_LOG -Append | Write-Output
+              docker rmi "$SOURCE_IMAGE" "$taggedImage" "$taggedLatest" 2>$null
               continue
             }
             
             # Push images
             Write-Output "Pushing to GHCR..."
-            $pushResult = docker push "$TARGET_IMAGE:$TAG" 2>&1
+            $pushResult = docker push "$taggedImage" 2>&1
 
             if ($LASTEXITCODE -ne 0) {
-              "FAILED to push: $TARGET_IMAGE:$TAG" | Tee-Object -FilePath $ERROR_LOG -Append | Write-Output
-              docker rmi "$SOURCE_IMAGE" "$TARGET_IMAGE:$TAG" 2>$null
+              "FAILED to push: $taggedImage" | Tee-Object -FilePath $ERROR_LOG -Append | Write-Output
+              docker rmi "$SOURCE_IMAGE" "$taggedImage" "$taggedLatest" 2>$null
+              continue
+            }
+            
+            $pushLatestResult = docker push "$taggedLatest" 2>&1
+            if ($LASTEXITCODE -ne 0) {
+              "FAILED to push latest: $taggedLatest" | Tee-Object -FilePath $ERROR_LOG -Append | Write-Output
+              docker rmi "$SOURCE_IMAGE" "$taggedImage" "$taggedLatest" 2>$null
               continue
             }
             
             # Cleanup
             Write-Output "Cleaning up..."
-            docker rmi "$SOURCE_IMAGE" "$TARGET_IMAGE:$TAG" 2>$null
+            docker rmi "$SOURCE_IMAGE" "$taggedImage" "$taggedLatest" 2>$null
             
-            Write-Output "Done: $SOURCE_IMAGE → $TARGET_IMAGE:$TAG"
-            "$SOURCE_IMAGE|$TARGET_IMAGE:$TAG" | Out-File -FilePath $SUCCESS_LOG -Encoding utf8 -Append
+            Write-Output "Done: $SOURCE_IMAGE → $taggedImage"
+            "$SOURCE_IMAGE|$taggedImage" | Out-File -FilePath $SUCCESS_LOG -Encoding utf8 -Append
           }
           
           # Save reports for summary
@@ -173,7 +189,7 @@ jobs:
               Copy-Item $SUCCESS_LOG /tmp/success-summary.txt -Force
             }
           }
-            
+
           if (Test-Path $ERROR_LOG) {
             if ((Get-Item $ERROR_LOG).Length -gt 0) {
               Copy-Item $ERROR_LOG /tmp/error-summary.txt -Force
