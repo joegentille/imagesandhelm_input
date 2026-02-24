@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       images:
-        description: 'List of Docker images to push (comma-separated, e.g. ubuntu:resolute-20260108,nginx:latest)'
+        description: 'List of Docker images to push (comma-separated, e.g. ubuntu:resolute-20260108,nginx:1.29.5)'
         required: true
         type: string
-        default: 'ubuntu:22.04,nginx:latest'
+        default: 'ubuntu:22.04,nginx:1.29.5'
 
 env:
   REGISTRY: ghcr.io
@@ -148,34 +148,19 @@ jobs:
               continue
             }
             
-            $taggedLatest = "$($TARGET_IMAGE):latest"
-            $tagLatestResult = docker tag "$SOURCE_IMAGE" "$taggedLatest" 2>&1
-            if ($LASTEXITCODE -ne 0) {
-              "FAILED to tag latest: $SOURCE_IMAGE → $taggedLatest" | Tee-Object -FilePath $ERROR_LOG -Append | Write-Output
-              docker rmi "$SOURCE_IMAGE" "$taggedImage" "$taggedLatest" 2>$null
-              continue
-            }
-            
             # Push images
             Write-Output "Pushing to GHCR..."
             $pushResult = docker push "$taggedImage" 2>&1
 
             if ($LASTEXITCODE -ne 0) {
               "FAILED to push: $taggedImage" | Tee-Object -FilePath $ERROR_LOG -Append | Write-Output
-              docker rmi "$SOURCE_IMAGE" "$taggedImage" "$taggedLatest" 2>$null
-              continue
-            }
-            
-            $pushLatestResult = docker push "$taggedLatest" 2>&1
-            if ($LASTEXITCODE -ne 0) {
-              "FAILED to push latest: $taggedLatest" | Tee-Object -FilePath $ERROR_LOG -Append | Write-Output
-              docker rmi "$SOURCE_IMAGE" "$taggedImage" "$taggedLatest" 2>$null
+              docker rmi "$SOURCE_IMAGE" "$taggedImage" 2>$null
               continue
             }
             
             # Cleanup
             Write-Output "Cleaning up..."
-            docker rmi "$SOURCE_IMAGE" "$taggedImage" "$taggedLatest" 2>$null
+            docker rmi "$SOURCE_IMAGE" "$taggedImage" 2>$null
             
             Write-Output "Done: $SOURCE_IMAGE → $taggedImage"
             "$SOURCE_IMAGE|$taggedImage" | Out-File -FilePath $SUCCESS_LOG -Encoding utf8 -Append
@@ -211,7 +196,7 @@ jobs:
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "Didn't find any valid images in the input provided."
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "**Please provide a list of images (comma-separated):**"
-            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '- `ubuntu:resolute-20260108,nginx:latest`'
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '- `ubuntu:resolute-20260108,nginx:1.29.5`'
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '- `redis:7.0-alpine,postgres:15`'
           } else {
             # Count successful and failed images
