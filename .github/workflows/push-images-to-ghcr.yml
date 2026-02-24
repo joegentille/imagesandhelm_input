@@ -192,8 +192,8 @@ jobs:
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "Didn't find any valid images in the input provided."
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "**Please provide a list of images (comma-separated):**"
-            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- \`ubuntu:resolute-20260108,nginx:latest\`"
-            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- \`redis:7.0-alpine,postgres:15\`"
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '- `ubuntu:resolute-20260108,nginx:latest`'
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '- `redis:7.0-alpine,postgres:15`'
           } else {
             # Count successful and failed images
             $SUCCESS_COUNT = 0
@@ -231,7 +231,7 @@ jobs:
                 foreach ($line in $successLines) {
                   $parts = $line -split '\|'
                   if ($parts.Length -eq 2) {
-                    Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- \`$($parts[0])\` → \`$($parts[1])\`"
+                    Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ('- `' + $($parts[0]) + '` → `' + $($parts[1]) + '`')
                   }
                 }
               }
