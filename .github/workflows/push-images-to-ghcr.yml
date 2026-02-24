@@ -1,0 +1,211 @@
+name: Push Docker Images to GHCR
+
+on:
+  workflow_dispatch:
+    inputs:
+      images:
+        description: 'JSON array with images to push (source_image, repository_name, tag)'
+        required: true
+        type: string
+        default: '[{"source_image":"nginx:latest","repository_name":"my-nginx","tag":"1.0"},{"source_image":"ubuntu:22.04","repository_name":"my-ubuntu","tag":"2.0"}]'
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  push-to-ghcr:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Load and validate config
+        id: config
+        run: |
+          # Parse the input JSON with images
+          IMAGES_JSON='${{ github.event.inputs.images }}'
+          
+          # Validate JSON format
+          echo "Validating JSON format..."
+          if ! echo "$IMAGES_JSON" | jq empty; then
+            echo "::error::Invalid JSON format in images input"
+            exit 1
+          fi
+          
+          # Count valid images
+          IMAGE_COUNT=$(echo "$IMAGES_JSON" | jq '[.[] | select(.source_image != null and .source_image != "")] | length')
+          echo "image_count=$IMAGE_COUNT" >> $GITHUB_OUTPUT
+          
+          # if there are valid images, set the matrix output
+          if [ "$IMAGE_COUNT" -gt 0 ]; then
+            MATRIX=$(echo "$IMAGES_JSON" | jq -c 'map({source_image, repository_name, tag})')
+            echo "matrix=$(echo $MATRIX | jq -c .)" >> $GITHUB_OUTPUT
+            echo "has_images=true" >> $GITHUB_OUTPUT
+            echo "✅ Found $IMAGE_COUNT valid image(s) to process"
+          else
+            echo "has_images=false" >> $GITHUB_OUTPUT
+            echo "⚠️  No valid images found in the input"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Process images
+        if: steps.config.outputs.has_images == 'true'
+        run: |
+          IMAGES_JSON='${{ github.event.inputs.images }}'
+          TRIVY_REPORT="/tmp/trivy-report.txt"
+          SUCCESS_LOG="/tmp/success-images.txt"
+          ERROR_LOG="/tmp/error-images.txt"
+          : > "$TRIVY_REPORT"
+          : > "$SUCCESS_LOG"
+          : > "$ERROR_LOG"
+          
+          while read -r line; do
+            SOURCE_IMAGE=$(echo "$line" | jq -r '.source_image')
+            REPOSITORY_NAME=$(echo "$line" | jq -r '.repository_name')
+            TAG=$(echo "$line" | jq -r '.tag // "latest"')
+            TARGET_IMAGE="${{ env.REGISTRY }}/${{ github.repository_owner }}/${REPOSITORY_NAME}"
+            
+            echo ""
+            echo "════════════════════════════════════════"
+            echo "📦 Processing: $SOURCE_IMAGE"
+            echo "════════════════════════════════════════"
+            
+            echo "📥 Pulling source image..."
+            if ! docker pull "$SOURCE_IMAGE" --quiet 2>&1; then
+              echo "❌ FAILED to pull: $SOURCE_IMAGE" | tee -a "$ERROR_LOG"
+              continue
+            fi
+            
+            echo "🔍 Scanning for vulnerabilities with Trivy..."
+            echo "### $SOURCE_IMAGE" >> "$TRIVY_REPORT"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:latest image --severity HIGH,CRITICAL \
+              --format table "$SOURCE_IMAGE" >> "$TRIVY_REPORT" 2>&1 || true
+            echo "" >> "$TRIVY_REPORT"
+            
+            echo "🏷️  Tagging image..."
+            if ! docker tag "$SOURCE_IMAGE" "${TARGET_IMAGE}:${TAG}" 2>&1; then
+              echo "❌ FAILED to tag: $SOURCE_IMAGE → ${TARGET_IMAGE}:${TAG}" | tee -a "$ERROR_LOG"
+              docker rmi "$SOURCE_IMAGE" 2>/dev/null || true
+              continue
+            fi
+            
+            if ! docker tag "$SOURCE_IMAGE" "${TARGET_IMAGE}:latest" 2>&1; then
+              echo "❌ FAILED to tag latest: $SOURCE_IMAGE → ${TARGET_IMAGE}:latest" | tee -a "$ERROR_LOG"
+              docker rmi "$SOURCE_IMAGE" "${TARGET_IMAGE}:${TAG}" 2>/dev/null || true
+              continue
+            fi
+            
+            echo "🚀 Pushing to GHCR..."
+            if ! docker push "${TARGET_IMAGE}:${TAG}" 2>&1; then
+              echo "❌ FAILED to push: ${TARGET_IMAGE}:${TAG}" | tee -a "$ERROR_LOG"
+              docker rmi "$SOURCE_IMAGE" "${TARGET_IMAGE}:${TAG}" "${TARGET_IMAGE}:latest" 2>/dev/null || true
+              continue
+            fi
+            
+            if ! docker push "${TARGET_IMAGE}:latest" 2>&1; then
+              echo "❌ FAILED to push latest: ${TARGET_IMAGE}:latest" | tee -a "$ERROR_LOG"
+              docker rmi "$SOURCE_IMAGE" "${TARGET_IMAGE}:${TAG}" "${TARGET_IMAGE}:latest" 2>/dev/null || true
+              continue
+            fi
+            
+            echo "🧹 Cleaning up..."
+            docker rmi "$SOURCE_IMAGE" "${TARGET_IMAGE}:${TAG}" "${TARGET_IMAGE}:latest" 2>/dev/null || true
+            
+            echo "✅ Done: $SOURCE_IMAGE → ${TARGET_IMAGE}:${TAG}"
+            echo "$SOURCE_IMAGE|${TARGET_IMAGE}:${TAG}" >> "$SUCCESS_LOG"
+          done < <(echo "$IMAGES_JSON" | jq -c '.[]')
+          
+          # Guardar documentos de reporte para el summary
+          cp "$TRIVY_REPORT" /tmp/trivy-summary.txt
+          [ -f "$SUCCESS_LOG" ] && [ -s "$SUCCESS_LOG" ] && cp "$SUCCESS_LOG" /tmp/success-summary.txt || touch /tmp/success-summary.txt
+          [ -f "$ERROR_LOG" ] && [ -s "$ERROR_LOG" ] && cp "$ERROR_LOG" /tmp/error-summary.txt || touch /tmp/error-summary.txt
+
+      - name: Create job summary
+        if: always()
+        shell: bash
+        run: |
+          TRIVY_REPORT="/tmp/trivy-summary.txt"
+          SUCCESS_LOG="/tmp/success-summary.txt"
+          ERROR_LOG="/tmp/error-summary.txt"
+          IMAGE_COUNT=${{ steps.config.outputs.image_count }}
+          
+          if [ "$IMAGE_COUNT" -eq 0 ]; then
+            echo "# ⚠️ No Images to Process" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "No se encontraron imágenes válidas en el input JSON proporcionado." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Por favor verifica que el JSON contenga:**" >> $GITHUB_STEP_SUMMARY
+            echo "- Un array válido de objetos" >> $GITHUB_STEP_SUMMARY
+            echo "- Cada objeto debe tener al menos el campo \`source_image\` con un valor no vacío" >> $GITHUB_STEP_SUMMARY
+          else
+            # Contar imágenes exitosas y fallidas
+            SUCCESS_COUNT=0
+            [ -f "$SUCCESS_LOG" ] && [ -s "$SUCCESS_LOG" ] && SUCCESS_COUNT=$(wc -l < "$SUCCESS_LOG")
+            
+            ERROR_COUNT=0
+            [ -f "$ERROR_LOG" ] && [ -s "$ERROR_LOG" ] && ERROR_COUNT=$(wc -l < "$ERROR_LOG")
+            
+            if [ "$SUCCESS_COUNT" -gt 0 ]; then
+              echo "# ✅ Linux Images Processed Successfully" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "# ❌ Linux Images Processing Failed" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            if [ "$SUCCESS_COUNT" -gt 0 ]; then
+              echo "## 📦 Images Pushed Successfully ($SUCCESS_COUNT/$IMAGE_COUNT):" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              
+              if [ -f "$SUCCESS_LOG" ]; then
+                while IFS='|' read -r source target; do
+                  echo "- ✅ \`$source\` → \`$target\`" >> $GITHUB_STEP_SUMMARY
+                done < "$SUCCESS_LOG"
+              fi
+              
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            if [ "$ERROR_COUNT" -gt 0 ]; then
+              echo "## ❌ Images Failed to Process ($ERROR_COUNT/$IMAGE_COUNT):" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              
+              if [ -f "$ERROR_LOG" ]; then
+                cat "$ERROR_LOG" | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+              fi
+              
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            if [ "$SUCCESS_COUNT" -gt 0 ]; then
+              echo "## 🛡️ Security Scan Report (Trivy - Successful Images Only):" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              
+              if [ -f "$TRIVY_REPORT" ] && [ -s "$TRIVY_REPORT" ]; then
+                cat "$TRIVY_REPORT" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "No vulnerabilities found or scan not executed" >> $GITHUB_STEP_SUMMARY
+              fi
+              
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Platform:** Linux | **Runner:** ubuntu-latest | **Input Source:** Manual JSON" >> $GITHUB_STEP_SUMMARY
