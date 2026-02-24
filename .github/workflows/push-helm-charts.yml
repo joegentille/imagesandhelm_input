@@ -24,6 +24,15 @@ jobs:
         with:
           version: 'latest'
       
+      - name: Verify Helm installation
+        shell: pwsh
+        run: |
+          Write-Host "Helm version:"
+          helm version
+          Write-Host ""
+          Write-Host "Helm plugin list:"
+          helm plugin list 2>&1 | Out-Host
+      
       - name: Parse chart paths
         id: paths
         shell: pwsh
@@ -50,19 +59,11 @@ jobs:
           Add-Content -Path $env:GITHUB_OUTPUT -Value "chart_count=$($validCharts.Count)"
       
       - name: Log in to Container Registry
-        shell: pwsh
-        run: |
-          $token = "${{ secrets.GITHUB_TOKEN }}"
-          $actor = "${{ github.actor }}"
-          $registry = "${{ env.REGISTRY }}"
-          
-          Write-Host "Logging in to $registry..."
-          $token | helm registry login -u $actor --password-stdin $registry
-          
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "::error::Failed to log in to container registry"
-            exit 1
-          }
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Process and push helm charts
         shell: pwsh
