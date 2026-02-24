@@ -109,10 +109,21 @@ jobs:
             }
             
             # Parse Chart.yaml
-            $chartContent = Get-Content -Path $chartYamlPath -Raw
-            $chartName = ($chartContent | Select-String -Pattern '^\s*name:\s*(.+)$').Matches[0].Groups[1].Value
-            $chartVersion = ($chartContent | Select-String -Pattern '^\s*version:\s*(.+)$').Matches[0].Groups[1].Value
-            $description = ($chartContent | Select-String -Pattern '^\s*description:\s*(.+)$').Matches[0].Groups[1].Value
+            $chartName = ""
+            $chartVersion = ""
+            $description = ""
+            
+            Get-Content -Path $chartYamlPath | ForEach-Object {
+              if ($_ -match '^\s*name:\s*(.+)$') {
+                $chartName = $matches[1].Trim()
+              }
+              if ($_ -match '^\s*version:\s*(.+)$') {
+                $chartVersion = $matches[1].Trim()
+              }
+              if ($_ -match '^\s*description:\s*(.+)$') {
+                $description = $matches[1].Trim()
+              }
+            }
             
             if ([string]::IsNullOrWhiteSpace($chartName) -or [string]::IsNullOrWhiteSpace($chartVersion)) {
               $errorMsg = "FAILED - Invalid Chart.yaml: missing name or version in $chartPath"
