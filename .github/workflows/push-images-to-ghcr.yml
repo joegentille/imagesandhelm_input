@@ -46,7 +46,7 @@ jobs:
             }
             
             # Extract repository_name and tag from source_image
-            if ($image -contains ':') {
+            if ($image.Contains(':')) {
               $parts = $image -split ':'
               $REPO_NAME = $parts[0]
               $TAG = $parts[1]
