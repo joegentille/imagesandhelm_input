@@ -7,7 +7,7 @@ on:
         required: true
         type: string
       external_repo_url:
-        description: 'External URL (Opcional)'
+        description: 'External URL (For External References) (https://charts.bitnami.com/bitnami)'
         required: false
         type: string
 
