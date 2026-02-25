@@ -76,12 +76,8 @@ jobs:
         run: |
           $charts = ConvertFrom-Json -InputObject '${{ steps.discover.outputs.charts }}'
           $packageDir = "$env:TEMP\helm-packages"
-          $successLog = "$env:TEMP\mirror-success.txt"
-          $errorLog = "$env:TEMP\mirror-error.txt"
           $owner = "${{ github.repository_owner }}".ToLower()
           
-          @() | Set-Content -Path $successLog -Force
-          @() | Set-Content -Path $errorLog -Force
           New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
           
           $totalCharts = if ($charts -is [array]) { $charts.Count } else { 1 }
@@ -128,89 +124,11 @@ jobs:
               Remove-Item -Path $chartFile.FullName -Force
               
               $registry = "${{ env.REGISTRY }}"
-              $msg = $simpleName + "~" + $registry + "/" + $owner + "/" + $simpleName + "~" + $chartVersion + "~" + $chartDesc
-              Add-Content -Path $successLog -Value $msg
               Write-Host "Success: $simpleName`:$chartVersion`n"
               
             } catch {
               $errorMsg = "$chartName - $_"
               Write-Host "✗ Error: $errorMsg`n"
-              Add-Content -Path $errorLog -Value $errorMsg
             }
           }
           
-          # Save reports
-          Copy-Item -Path $successLog -Destination "$env:TEMP\mirror-success-summary.txt" -Force -ErrorAction SilentlyContinue
-          Copy-Item -Path $errorLog -Destination "$env:TEMP\mirror-error-summary.txt" -Force -ErrorAction SilentlyContinue
-      - name: Create job summary
-        if: always()
-        shell: pwsh
-        run: |
-          $successLog = "$env:TEMP\mirror-success-summary.txt"
-          $errorLog = "$env:TEMP\mirror-error-summary.txt"
-          $chartCount = ${{ steps.discover.outputs.chart_count }}
-          $summaryFile = $env:GITHUB_STEP_SUMMARY
-          
-          $successCount = 0
-          $errorCount = 0
-          
-          if ((Test-Path -Path $successLog) -and ((Get-Item $successLog).Length -gt 0)) {
-            $successCount = @(Get-Content -Path $successLog | Where-Object { $_ -and $_.Trim() }).Count
-          }
-          
-          if ((Test-Path -Path $errorLog) -and ((Get-Item $errorLog).Length -gt 0)) {
-            $errorCount = @(Get-Content -Path $errorLog | Where-Object { $_ -and $_.Trim() }).Count
-          }
-          
-          # Write summary
-          if ($successCount -gt 0) {
-            Add-Content -Path $summaryFile -Value "# Mirror Completed Successfully"
-          } else {
-            Add-Content -Path $summaryFile -Value "# Mirror Failed"
-          }
-          
-          Add-Content -Path $summaryFile -Value ""
-          Add-Content -Path $summaryFile -Value "## Summary"
-          Add-Content -Path $summaryFile -Value "Repository: ${{ github.event.inputs.repository_url }}"
-          Add-Content -Path $summaryFile -Value "Total Charts: $chartCount"
-          Add-Content -Path $summaryFile -Value "Successful: $successCount"
-          Add-Content -Path $summaryFile -Value "Failed: $errorCount"
-          Add-Content -Path $summaryFile -Value ""
-          
-          if ($successCount -gt 0) {
-            Add-Content -Path $summaryFile -Value "## Charts Mirrored ($successCount/$chartCount):"
-            Add-Content -Path $summaryFile -Value ""
-            
-            if (Test-Path -Path $successLog) {
-              Get-Content -Path $successLog | Where-Object { $_ -and $_.Trim() } | ForEach-Object {
-                $parts = $_ -split '~'
-                $name = $parts[0].Trim()
-                $registry = $parts[1].Trim()
-                $version = $parts[2].Trim()
-                $desc = if ($parts.Count -gt 3) { $parts[3].Trim() } else { "" }
-                
-                Add-Content -Path $summaryFile -Value "- $name:$version"
-                Add-Content -Path $summaryFile -Value "  Location: $registry:$version"
-                if ($desc) {
-                  Add-Content -Path $summaryFile -Value "  Description: $desc"
-                }
-              }
-            }
-            
-            Add-Content -Path $summaryFile -Value ""
-          }
-          
-          if ($errorCount -gt 0) {
-            Add-Content -Path $summaryFile -Value "## Failed Charts ($errorCount/$chartCount):"
-            Add-Content -Path $summaryFile -Value ""
-            
-            if (Test-Path -Path $errorLog) {
-              Get-Content -Path $errorLog | Where-Object { $_ -and $_.Trim() } | ForEach-Object {
-                Add-Content -Path $summaryFile -Value "- Error: $_"
-              }
-            }
-            
-            Add-Content -Path $summaryFile -Value ""
-          }
-          
-          Add-Content -Path $summaryFile -Value "Platform: Windows | Runner: windows-latest"
