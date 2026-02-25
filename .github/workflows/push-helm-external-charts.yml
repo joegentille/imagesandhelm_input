@@ -1,4 +1,4 @@
-name: Push external Helm Charts to GHCR
+name: Push External Helm Charts to GHCR
 on:
   workflow_dispatch:
     inputs:
@@ -128,8 +128,7 @@ jobs:
               Write-Host ""
               
             } catch {
-              $errorMsg = "$chartName - $_"
-              Write-Host "Error: $($errorMsg)"
+              Write-Host "Error: $chartName - $_"
               Write-Host ""
             }
           }
