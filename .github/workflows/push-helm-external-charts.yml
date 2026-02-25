@@ -88,9 +88,9 @@ jobs:
             $chartVersion = $chart.version
             $chartDesc = $chart.description
             
-            Write-Host "════════════════════════════════════════"
+            Write-Host "===================================="
             Write-Host "Mirroring: $chartName - $chartVersion"
-            Write-Host "════════════════════════════════════════"
+            Write-Host "===================================="
             
             try {
               # Extract chart name
@@ -123,12 +123,10 @@ jobs:
               # Cleanup
               Remove-Item -Path $chartFile.FullName -Force
               
-              $registry = "${{ env.REGISTRY }}"
-              Write-Host "Success: $simpleName`:$chartVersion`n"
+              Write-Host "Success: $simpleName : $chartVersion`n"
               
             } catch {
               $errorMsg = "$chartName - $_"
-              Write-Host "✗ Error: $errorMsg`n"
+              Write-Host "Error: $errorMsg`n"
             }
           }
-          
