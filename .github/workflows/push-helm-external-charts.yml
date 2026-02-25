@@ -128,7 +128,6 @@ jobs:
               Write-Host ""
               
             } catch {
-              Write-Host "Error: $chartName - $_"
-              Write-Host ""
+              Write-Host "No se que pasa"
             }
           }
