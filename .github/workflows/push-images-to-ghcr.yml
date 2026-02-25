@@ -43,11 +43,11 @@ jobs:
             # Extract repository_name and tag from source_image
             if ($image.Contains(':')) {
               $parts = $image -split ':'
-              $REPO_NAME = $parts[0]
+              $REPO_NAME = $parts[0].ToLower()
               $TAG = $parts[1]
             } else {
               # Image without tag (e.g., nginx), default to 'latest'
-              $REPO_NAME = $image
+              $REPO_NAME = $image.ToLower()
               $TAG = 'latest'
             }
             
@@ -105,9 +105,10 @@ jobs:
           
           foreach ($img in $images) {
             $SOURCE_IMAGE = $img.source_image
-            $REPOSITORY_NAME = $img.repository_name
+            $REPOSITORY_NAME = $img.repository_name.ToLower()
             $TAG = $img.tag
-            $TARGET_IMAGE = "${{ env.REGISTRY }}/${{ github.repository_owner }}/$REPOSITORY_NAME"
+            $OWNER = "${{ github.repository_owner }}".ToLower()
+            $TARGET_IMAGE = "${{ env.REGISTRY }}/$OWNER/$REPOSITORY_NAME"
             
             Write-Output ""
             Write-Output "════════════════════════════════════════"
