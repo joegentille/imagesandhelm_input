@@ -198,7 +198,7 @@ jobs:
           if (Test-Path -Path $errorLog) {
             Copy-Item -Path $errorLog -Destination "$env:TEMP\error-charts-summary.txt" -Force
           }
-      
+
       - name: Create job summary
         if: always()
         shell: pwsh
@@ -234,15 +234,17 @@ jobs:
             Add-Content -Path $summaryFile -Value "## Helm Charts Pushed ($successCount/$chartCount):"
             Add-Content -Path $summaryFile -Value ""
             
-            Get-Content -Path $successLog | ForEach-Object {
-              $parts = $_ -split '\|'
-              $name = $parts[0]
-              $target = $parts[1]
-              $description = if ($parts.Count -gt 2) { $parts[2] } else { "" }
-              
-                Add-Content -Path $summaryFile -Value "- ✅ 📦 \`$name\` → \`$target\`"
-              if ($description) {
-                Add-Content -Path $summaryFile -Value "  - $description"
+            if (Test-Path -Path $successLog) {
+              Get-Content -Path $successLog | ForEach-Object {
+                $parts = $_ -split '\|'
+                $name = $parts[0]
+                $target = $parts[1]
+                $description = if ($parts.Count -gt 2) { $parts[2] } else { "" }
+                
+                Add-Content -Path $summaryFile -Value "- OK: $name => $target"
+                if ($description) {
+                  Add-Content -Path $summaryFile -Value "  Description: $description"
+                }
               }
             }
             
@@ -250,14 +252,16 @@ jobs:
           }
           
           if ($errorCount -gt 0) {
-            Add-Content -Path $summaryFile -Value "## ❌ Helm Charts Failed ($errorCount/$chartCount):"
+            Add-Content -Path $summaryFile -Value "## Helm Charts Failed ($errorCount/$chartCount):"
             Add-Content -Path $summaryFile -Value ""
             
-            Get-Content -Path $errorLog | ForEach-Object {
-              Add-Content -Path $summaryFile -Value "- $_"
+            if (Test-Path -Path $errorLog) {
+              Get-Content -Path $errorLog | ForEach-Object {
+                Add-Content -Path $summaryFile -Value "- Error: $_"
+              }
             }
             
             Add-Content -Path $summaryFile -Value ""
           }
           
-          Add-Content -Path $summaryFile -Value "**Platform:** Windows | **Runner:** windows-latest"
+          Add-Content -Path $summaryFile -Value "Platform: Windows | Runner: windows-latest"          
