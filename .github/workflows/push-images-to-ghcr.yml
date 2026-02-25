@@ -1,5 +1,4 @@
 name: Push Docker Images to GHCR
-
 on:
   workflow_dispatch:
     inputs:
@@ -8,10 +7,8 @@ on:
         required: true
         type: string
         default: 'ubuntu:22.04,nginx:1.29.5'
-
 env:
   REGISTRY: ghcr.io
-
 jobs:
   push-to-ghcr:
     runs-on: ubuntu-latest
@@ -19,11 +16,9 @@ jobs:
     permissions:
       contents: read
       packages: write
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Load and validate images
         id: config
         shell: pwsh
@@ -83,17 +78,14 @@ jobs:
             "image_count=0" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             Write-Output "⚠️  No valid images found in the input"
           }
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
       - name: Log in to Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Process images
         if: steps.config.outputs.has_images == 'true'
         shell: pwsh
@@ -103,10 +95,10 @@ jobs:
           $SUCCESS_LOG = "/tmp/success-images.txt"
           $ERROR_LOG = "/tmp/error-images.txt"
           
-          # Clear files
-          "" | Out-File -FilePath $TRIVY_REPORT -Encoding utf8
-          "" | Out-File -FilePath $SUCCESS_LOG -Encoding utf8
-          "" | Out-File -FilePath $ERROR_LOG -Encoding utf8
+          # Clear files - Initialize as empty without empty lines
+          @() | Out-File -FilePath $TRIVY_REPORT -Encoding utf8
+          @() | Out-File -FilePath $SUCCESS_LOG -Encoding utf8
+          @() | Out-File -FilePath $ERROR_LOG -Encoding utf8
           
           # Parse the matrix JSON
           $images = $MATRIX | ConvertFrom-Json
@@ -151,7 +143,6 @@ jobs:
             # Push images
             Write-Output "Pushing to GHCR..."
             $pushResult = docker push "$taggedImage" 2>&1
-
             if ($LASTEXITCODE -ne 0) {
               "FAILED to push: $taggedImage" | Tee-Object -FilePath $ERROR_LOG -Append | Write-Output
               docker rmi "$SOURCE_IMAGE" "$taggedImage" 2>$null
@@ -168,19 +159,16 @@ jobs:
           
           # Save reports for summary
           Copy-Item $TRIVY_REPORT /tmp/trivy-summary.txt -Force
-
           if (Test-Path $SUCCESS_LOG) {
             if ((Get-Item $SUCCESS_LOG).Length -gt 0) {
               Copy-Item $SUCCESS_LOG /tmp/success-summary.txt -Force
             }
           }
-
           if (Test-Path $ERROR_LOG) {
             if ((Get-Item $ERROR_LOG).Length -gt 0) {
               Copy-Item $ERROR_LOG /tmp/error-summary.txt -Force
             }
           }
-
       - name: Create job summary
         if: always()
         shell: pwsh
@@ -204,14 +192,14 @@ jobs:
             $ERROR_COUNT = 0
             
             if (Test-Path $SUCCESS_LOG) {
-              $successContent = Get-Content $SUCCESS_LOG
+              $successContent = Get-Content $SUCCESS_LOG | Where-Object { $_ -and $_.Trim() }
               if ($null -ne $successContent) {
                 $SUCCESS_COUNT = @($successContent).Count
               }
             }
             
             if (Test-Path $ERROR_LOG) {
-              $errorContent = Get-Content $ERROR_LOG
+              $errorContent = Get-Content $ERROR_LOG | Where-Object { $_ -and $_.Trim() }
               if ($null -ne $errorContent) {
                 $ERROR_COUNT = @($errorContent).Count
               }
@@ -231,11 +219,13 @@ jobs:
               Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
               
               if (Test-Path $SUCCESS_LOG) {
-                $successLines = Get-Content $SUCCESS_LOG
+                $successLines = Get-Content $SUCCESS_LOG | Where-Object { $_ -and $_.Trim() }
                 foreach ($line in $successLines) {
                   $parts = $line -split '\|'
-                  if ($parts.Length -eq 2) {
-                    Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ('- `' + $($parts[0]) + '` → `' + $($parts[1]) + '`')
+                  if ($parts.Length -ge 2) {
+                    $source = $parts[0].Trim()
+                    $target = $parts[1].Trim()
+                    Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- $source => $target"
                   }
                 }
               }
@@ -248,7 +238,7 @@ jobs:
               Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
               
               if (Test-Path $ERROR_LOG) {
-                $errorLines = Get-Content $ERROR_LOG
+                $errorLines = Get-Content $ERROR_LOG | Where-Object { $_ -and $_.Trim() }
                 foreach ($line in $errorLines) {
                   Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- $line"
                 }
