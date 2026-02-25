@@ -1,4 +1,4 @@
-name: Mirror Helm Charts to GHCR
+name: Push external Helm Charts to GHCR
 on:
   workflow_dispatch:
     inputs:
