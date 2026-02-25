@@ -73,9 +73,9 @@ jobs:
           $successLog = "$env:TEMP\success-charts.txt"
           $errorLog = "$env:TEMP\error-charts.txt"
           
-          # Clean logs
-          "" | Set-Content -Path $successLog -Force
-          "" | Set-Content -Path $errorLog -Force
+          # Clean logs - Initialize as empty files
+          @() | Set-Content -Path $successLog -Force
+          @() | Set-Content -Path $errorLog -Force
           
           # Create package directory
           if (-not (Test-Path -Path $packageDir)) {
@@ -198,7 +198,6 @@ jobs:
           if (Test-Path -Path $errorLog) {
             Copy-Item -Path $errorLog -Destination "$env:TEMP\error-charts-summary.txt" -Force
           }
-
       - name: Create job summary
         if: always()
         shell: pwsh
@@ -214,11 +213,11 @@ jobs:
           $errorCount = 0
           
           if ((Test-Path -Path $successLog) -and ((Get-Item $successLog).Length -gt 0)) {
-            $successCount = @(Get-Content -Path $successLog).Count
+            $successCount = @(Get-Content -Path $successLog | Where-Object { $_ -and $_.Trim() }).Count
           }
           
           if ((Test-Path -Path $errorLog) -and ((Get-Item $errorLog).Length -gt 0)) {
-            $errorCount = @(Get-Content -Path $errorLog).Count
+            $errorCount = @(Get-Content -Path $errorLog | Where-Object { $_ -and $_.Trim() }).Count
           }
           
           # Write summary
@@ -235,11 +234,11 @@ jobs:
             Add-Content -Path $summaryFile -Value ""
             
             if (Test-Path -Path $successLog) {
-              Get-Content -Path $successLog | ForEach-Object {
+              Get-Content -Path $successLog | Where-Object { $_ -and $_.Trim() } | ForEach-Object {
                 $parts = $_ -split '\|'
-                $name = $parts[0]
-                $target = $parts[1]
-                $description = if ($parts.Count -gt 2) { $parts[2] } else { "" }
+                $name = $parts[0].Trim()
+                $target = if ($parts.Count -gt 1) { $parts[1].Trim() } else { "" }
+                $description = if ($parts.Count -gt 2) { $parts[2].Trim() } else { "" }
                 
                 Add-Content -Path $summaryFile -Value "- OK: $name => $target"
                 if ($description) {
@@ -256,7 +255,7 @@ jobs:
             Add-Content -Path $summaryFile -Value ""
             
             if (Test-Path -Path $errorLog) {
-              Get-Content -Path $errorLog | ForEach-Object {
+              Get-Content -Path $errorLog | Where-Object { $_ -and $_.Trim() } | ForEach-Object {
                 Add-Content -Path $summaryFile -Value "- Error: $_"
               }
             }
@@ -264,4 +263,4 @@ jobs:
             Add-Content -Path $summaryFile -Value ""
           }
           
-          Add-Content -Path $summaryFile -Value "Platform: Windows | Runner: windows-latest"          
+          Add-Content -Path $summaryFile -Value "Platform: Windows | Runner: windows-latest"
