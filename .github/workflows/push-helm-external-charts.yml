@@ -93,7 +93,7 @@ jobs:
             $chartDesc = $chart.description
             
             Write-Host "════════════════════════════════════════"
-            Write-Host "Mirroring: $chartName @ $chartVersion"
+            Write-Host "Mirroring: $chartName - $chartVersion"
             Write-Host "════════════════════════════════════════"
             
             try {
