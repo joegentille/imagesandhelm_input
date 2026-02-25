@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       chart_paths:
-        description: 'Rutas a los charts Helm, separadas por comas (ej: ./charts/app1,./charts/app2)'
+        description: 'Path to Helm Charts, comma separated (Ex: ./charts/app1,./charts/app2)'
         required: true
         type: string
 env:
