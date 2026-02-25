@@ -1,4 +1,4 @@
-name: Push Helm Charts to GHCR
+name: Push Helm Charts to GHCR - Local Paths
 on:
   workflow_dispatch:
     inputs:

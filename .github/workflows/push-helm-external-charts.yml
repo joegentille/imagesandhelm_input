@@ -1,0 +1,215 @@
+name: Mirror Helm Charts to GHCR
+on:
+  workflow_dispatch:
+    inputs:
+      repository_url:
+        description: 'Helm repository URL (e.g., https://charts.bitnami.com/bitnami)'
+        required: true
+        type: string
+      repository_name:
+        description: 'Helm repository name (e.g., bitnami, stable)'
+        required: true
+        type: string
+      charts_filter:
+        description: 'Charts to mirror (comma-separated, empty = all). Example: apache,wordpress,redis'
+        required: false
+        type: string
+env:
+  REGISTRY: ghcr.io
+jobs:
+  mirror-helm-charts:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'latest'
+      
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup and discover charts
+        id: discover
+        shell: pwsh
+        run: |
+          $repoUrl = "${{ github.event.inputs.repository_url }}"
+          $repoName = "${{ github.event.inputs.repository_name }}"
+          $chartsFilter = "${{ github.event.inputs.charts_filter }}"
+          
+          Write-Host "Adding Helm repository: $repoName"
+          helm repo add $repoName $repoUrl --force-update
+          helm repo update
+          
+          Write-Host "`nSearching for charts in repository..."
+          $charts = helm search repo $repoName --output json | ConvertFrom-Json
+          
+          if ($null -eq $charts -or $charts.Count -eq 0) {
+            Write-Error "No charts found in repository"
+            exit 1
+          }
+          
+          # Filter charts if specified
+          $selectedCharts = @()
+          
+          if (-not [string]::IsNullOrWhiteSpace($chartsFilter)) {
+            $filterList = $chartsFilter -split ',' | ForEach-Object { $_.Trim().ToLower() }
+            $selectedCharts = $charts | Where-Object { $filterList -contains $_.name.split('/')[-1].ToLower() }
+            Write-Host "Found $($selectedCharts.Count) matching charts"
+          } else {
+            $selectedCharts = $charts
+            Write-Host "Found $($selectedCharts.Count) charts total"
+          }
+          
+          $chartsJson = $selectedCharts | ConvertTo-Json -Compress
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "charts=$chartsJson"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "chart_count=$($selectedCharts.Count)"
+      - name: Mirror charts to GHCR
+        shell: pwsh
+        run: |
+          $charts = ConvertFrom-Json -InputObject '${{ steps.discover.outputs.charts }}'
+          $packageDir = "$env:TEMP\helm-packages"
+          $successLog = "$env:TEMP\mirror-success.txt"
+          $errorLog = "$env:TEMP\mirror-error.txt"
+          $owner = "${{ github.repository_owner }}".ToLower()
+          
+          @() | Set-Content -Path $successLog -Force
+          @() | Set-Content -Path $errorLog -Force
+          New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+          
+          $totalCharts = if ($charts -is [array]) { $charts.Count } else { 1 }
+          Write-Host "Processing $totalCharts charts...`n"
+          
+          foreach ($chart in $charts) {
+            $chartName = $chart.name
+            $chartVersion = $chart.version
+            $chartDesc = $chart.description
+            
+            Write-Host "════════════════════════════════════════"
+            Write-Host "Mirroring: $chartName @ $chartVersion"
+            Write-Host "════════════════════════════════════════"
+            
+            try {
+              # Extract chart name
+              $simpleName = ($chartName -split '/')[-1]
+              $simpleName = $simpleName.ToLower()
+              
+              # Pull chart
+              Write-Host "Downloading chart..."
+              helm pull $chartName --version $chartVersion --destination $packageDir 2>&1 | Out-Host
+              
+              if ($LASTEXITCODE -ne 0) {
+                throw "Failed to download chart"
+              }
+              
+              $chartFile = Get-ChildItem -Path $packageDir -Filter "*$simpleName*$chartVersion*.tgz" | Select-Object -First 1
+              
+              if (-not $chartFile) {
+                throw "Chart file not found after download"
+              }
+              
+              # Push to GHCR
+              $targetRegistry = "oci://${{ env.REGISTRY }}/$owner"
+              Write-Host "Pushing to GHCR: ${{ env.REGISTRY }}/$owner/$simpleName"
+              helm push $chartFile.FullName $targetRegistry 2>&1 | Out-Host
+              
+              if ($LASTEXITCODE -ne 0) {
+                throw "Failed to push chart to GHCR"
+              }
+              
+              # Cleanup
+              Remove-Item -Path $chartFile.FullName -Force
+              
+              $msg = "$simpleName|${{ env.REGISTRY }}/$owner/$simpleName|$chartVersion|$chartDesc"
+              Add-Content -Path $successLog -Value $msg
+              Write-Host "✓ Success: $simpleName:$chartVersion`n"
+              
+            } catch {
+              $errorMsg = "$chartName - $_"
+              Write-Host "✗ Error: $errorMsg`n"
+              Add-Content -Path $errorLog -Value $errorMsg
+            }
+          }
+          
+          # Save reports
+          Copy-Item -Path $successLog -Destination "$env:TEMP\mirror-success-summary.txt" -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path $errorLog -Destination "$env:TEMP\mirror-error-summary.txt" -Force -ErrorAction SilentlyContinue
+      - name: Create job summary
+        if: always()
+        shell: pwsh
+        run: |
+          $successLog = "$env:TEMP\mirror-success-summary.txt"
+          $errorLog = "$env:TEMP\mirror-error-summary.txt"
+          $chartCount = ${{ steps.discover.outputs.chart_count }}
+          $summaryFile = $env:GITHUB_STEP_SUMMARY
+          
+          $successCount = 0
+          $errorCount = 0
+          
+          if ((Test-Path -Path $successLog) -and ((Get-Item $successLog).Length -gt 0)) {
+            $successCount = @(Get-Content -Path $successLog | Where-Object { $_ -and $_.Trim() }).Count
+          }
+          
+          if ((Test-Path -Path $errorLog) -and ((Get-Item $errorLog).Length -gt 0)) {
+            $errorCount = @(Get-Content -Path $errorLog | Where-Object { $_ -and $_.Trim() }).Count
+          }
+          
+          # Write summary
+          if ($successCount -gt 0) {
+            Add-Content -Path $summaryFile -Value "# Mirror Completed Successfully"
+          } else {
+            Add-Content -Path $summaryFile -Value "# Mirror Failed"
+          }
+          
+          Add-Content -Path $summaryFile -Value ""
+          Add-Content -Path $summaryFile -Value "## Summary"
+          Add-Content -Path $summaryFile -Value "Repository: ${{ github.event.inputs.repository_url }}"
+          Add-Content -Path $summaryFile -Value "Total Charts: $chartCount"
+          Add-Content -Path $summaryFile -Value "Successful: $successCount"
+          Add-Content -Path $summaryFile -Value "Failed: $errorCount"
+          Add-Content -Path $summaryFile -Value ""
+          
+          if ($successCount -gt 0) {
+            Add-Content -Path $summaryFile -Value "## Charts Mirrored ($successCount/$chartCount):"
+            Add-Content -Path $summaryFile -Value ""
+            
+            if (Test-Path -Path $successLog) {
+              Get-Content -Path $successLog | Where-Object { $_ -and $_.Trim() } | ForEach-Object {
+                $parts = $_ -split '\|'
+                $name = $parts[0].Trim()
+                $registry = $parts[1].Trim()
+                $version = $parts[2].Trim()
+                $desc = if ($parts.Count -gt 3) { $parts[3].Trim() } else { "" }
+                
+                Add-Content -Path $summaryFile -Value "- $name:$version"
+                Add-Content -Path $summaryFile -Value "  Location: $registry:$version"
+                if ($desc) {
+                  Add-Content -Path $summaryFile -Value "  Description: $desc"
+                }
+              }
+            }
+            
+            Add-Content -Path $summaryFile -Value ""
+          }
+          
+          if ($errorCount -gt 0) {
+            Add-Content -Path $summaryFile -Value "## Failed Charts ($errorCount/$chartCount):"
+            Add-Content -Path $summaryFile -Value ""
+            
+            if (Test-Path -Path $errorLog) {
+              Get-Content -Path $errorLog | Where-Object { $_ -and $_.Trim() } | ForEach-Object {
+                Add-Content -Path $summaryFile -Value "- Error: $_"
+              }
+            }
+            
+            Add-Content -Path $summaryFile -Value ""
+          }
+          
+          Add-Content -Path $summaryFile -Value "Platform: Windows | Runner: windows-latest"
