@@ -128,7 +128,7 @@ jobs:
               Remove-Item -Path $chartFile.FullName -Force
               
               $registry = "${{ env.REGISTRY }}"
-              $msg = $simpleName + "|" + $registry + "/" + $owner + "/" + $simpleName + "|" + $chartVersion + "|" + $chartDesc
+              $msg = $simpleName + "~" + $registry + "/" + $owner + "/" + $simpleName + "~" + $chartVersion + "~" + $chartDesc
               Add-Content -Path $successLog -Value $msg
               Write-Host "Success: $simpleName`:$chartVersion`n"
               
@@ -183,7 +183,7 @@ jobs:
             
             if (Test-Path -Path $successLog) {
               Get-Content -Path $successLog | Where-Object { $_ -and $_.Trim() } | ForEach-Object {
-                $parts = $_ -split '\|'
+                $parts = $_ -split '~'
                 $name = $parts[0].Trim()
                 $registry = $parts[1].Trim()
                 $version = $parts[2].Trim()
@@ -212,3 +212,5 @@ jobs:
             
             Add-Content -Path $summaryFile -Value ""
           }
+          
+          Add-Content -Path $summaryFile -Value "Platform: Windows | Runner: windows-latest"
