@@ -1,4 +1,4 @@
-name: Push external Helm Charts to GHCR
+name: Mirror Helm Charts to GHCR
 on:
   workflow_dispatch:
     inputs:
@@ -127,9 +127,10 @@ jobs:
               # Cleanup
               Remove-Item -Path $chartFile.FullName -Force
               
-              $msg = "$simpleName|${{ env.REGISTRY }}/$owner/$simpleName|$chartVersion|$chartDesc"
+              $registry = "${{ env.REGISTRY }}"
+              $msg = $simpleName + "|" + $registry + "/" + $owner + "/" + $simpleName + "|" + $chartVersion + "|" + $chartDesc
               Add-Content -Path $successLog -Value $msg
-              Write-Host "✓ Success: $simpleName:$chartVersion`n"
+              Write-Host "Success: $simpleName`:$chartVersion`n"
               
             } catch {
               $errorMsg = "$chartName - $_"
@@ -211,5 +212,3 @@ jobs:
             
             Add-Content -Path $summaryFile -Value ""
           }
-          
-          Add-Content -Path $summaryFile -Value "Platform: Windows | Runner: windows-latest"
