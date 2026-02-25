@@ -48,7 +48,7 @@ jobs:
           helm repo add $repoName $repoUrl --force-update
           helm repo update
           
-          Write-Host "`nSearching for charts in repository..."
+          Write-Host "Searching for charts in repository..."
           $charts = helm search repo $repoName --output json | ConvertFrom-Json
           
           if ($null -eq $charts -or $charts.Count -eq 0) {
@@ -129,7 +129,7 @@ jobs:
               
             } catch {
               $errorMsg = "$chartName - $_"
-              Write-Host "Error: $errorMsg"
+              Write-Host "Error: $($errorMsg)"
               Write-Host ""
             }
           }
